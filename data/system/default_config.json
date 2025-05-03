@@ -1,0 +1,13 @@
+{
+  "logger": {
+    "logLevel": "info",
+    "saveToFile": false
+  },
+  "autoTask": {
+    "enabled": true,
+    "execTime": "0 2 0 * * ? "
+  },
+  "useRandomBgInCard": true,
+  "attemptSendNonFriend": true,
+  "botQQ": 0
+}

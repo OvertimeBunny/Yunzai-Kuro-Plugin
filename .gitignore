@@ -1,0 +1,16 @@
+# logs
+data/logs/
+
+# 配置文件
+config/
+
+# 用户信息
+
+data/gachaData/
+data/system/versionCache.json
+data/system/taskProcess.json
+data/token/
+data/userSetting/
+
+#nodejs
+node_modules/

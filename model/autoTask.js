@@ -1,0 +1,401 @@
+import fs from 'node:fs'
+import schedule from 'node-schedule'
+import kuroLogger from '../components/logger.js'
+import { doBBSDailyTask } from './bbsTask.js'
+import { doBbsActivityTask } from './bbsActivityTask.js'
+import { doPnsSignIn, doMcSignIn } from './gameSignIn.js'
+import { doPnsEnergy, doMcEnergy } from './gameEnergy.js'
+import {
+  dataPath,
+  pluginVer,
+  _DataPath,
+  pluginThemeColor,
+} from '../data/system/pluginConstants.js'
+import { getRandomInt, sendMsgFriend, sleepAsync } from './utils.js'
+import { getToken } from '../model/kuroBBSTokenHandler.js'
+import cfg from '../../../lib/config/config.js'
+import config from '../components/config.js'
+
+export async function initAutoTask() {
+  if (!config.getConfig()?.autoTask?.enabled) {
+    kuroLogger.info(pluginThemeColor(`自动任务已被禁用, 取消载入定时任务`))
+    return false
+  }
+  const autoTaskTime = config.getConfig().autoTask.execTime
+  kuroLogger.info(pluginThemeColor(`载入定时任务 gameSignTask:pns`))
+  schedule.scheduleJob(autoTaskTime, function () {
+    gameSignTask('pns')
+  })
+  kuroLogger.info(pluginThemeColor(`载入定时任务 gameSignTask:mc`))
+  schedule.scheduleJob(autoTaskTime, function () {
+    gameSignTask('mc')
+  })
+  kuroLogger.info(pluginThemeColor(`载入定时任务 bbsDailyTask`))
+  schedule.scheduleJob(autoTaskTime, function () {
+    bbsDailyTask()
+  })
+
+  kuroLogger.info(pluginThemeColor(`载入定时任务 gameEnergyPushTask`))
+  schedule.scheduleJob('0 0 * * * ? ', function () {
+    gameEnergyPushTask()
+  })
+
+  kuroLogger.info(pluginThemeColor(`载入定时任务 bbsActivityTask`))
+  schedule.scheduleJob(autoTaskTime, function () {
+    bbsActivityTask()
+  })
+
+  kuroLogger.info(pluginThemeColor(`载入定时任务 checkUpdateTask`))
+  schedule.scheduleJob('0 0 6/12 * * ? ', function () {
+    checkUpdateTask()
+  })
+}
+
+async function gameSignTask(gameName) {
+  if (!gameName || (gameName !== 'pns' && gameName !== 'mc')) {
+    kuroLogger.error(`自动游戏签到: 游戏 ${gameName} 未定义!`)
+    return false
+  }
+  if (gameName == 'mc') {
+    kuroLogger.info(`自动游戏签到: 鸣潮签到开始...`)
+
+    const gameSignUins = fs
+      .readdirSync(dataPath + '/token')
+      .filter((file) => file.endsWith('.json'))
+
+    for (let i in gameSignUins) {
+      let gameSignUin = gameSignUins[i].replace('.json', '')
+      kuroLogger.info(`自动游戏签到: 开始为 ${gameSignUin} 鸣潮签到`)
+      let startTime = Date.now()
+      const tokenData = await getToken(gameSignUin)
+      let msg = '[库洛插件] 自动游戏签到 - 鸣潮\n\n'
+      for (const kuro_uid in tokenData) {
+        if (Object.prototype.hasOwnProperty.call(tokenData, kuro_uid)) {
+          msg += await doMcSignIn(gameSignUin, kuro_uid)
+          msg += '\n'
+        } else {
+          msg += `账号 ${kuro_uid}: \ntoken 格式错误\n\n`
+        }
+        await sleepAsync(getRandomInt(1000, 3000))
+      }
+      msg += `共用时 ${Math.floor((Date.now() - startTime) / 1000)}s\n`
+      await sendMsgFriend(gameSignUin, msg.trimEnd())
+    }
+    kuroLogger.info(`自动游戏签到: 鸣潮签到完成`)
+    return true
+  }
+  if (gameName == 'pns') {
+    kuroLogger.info(`自动游戏签到: 战双签到开始...`)
+
+    const gameSignUins = fs
+      .readdirSync(dataPath + '/token')
+      .filter((file) => file.endsWith('.json'))
+
+    for (let i in gameSignUins) {
+      let gameSignUin = gameSignUins[i].replace('.json', '')
+      kuroLogger.info(`自动游戏签到: 开始为 ${gameSignUin} 战双签到`)
+      let startTime = Date.now()
+      const tokenData = await getToken(gameSignUin)
+      let msg = '[库洛插件] 自动游戏签到 - 战双\n\n'
+      for (const kuro_uid in tokenData) {
+        if (Object.prototype.hasOwnProperty.call(tokenData, kuro_uid)) {
+          msg += await doPnsSignIn(gameSignUin, kuro_uid)
+          msg += '\n'
+        } else {
+          msg += `账号 ${kuro_uid}: \ntoken 格式错误\n\n`
+        }
+        await sleepAsync(getRandomInt(1000, 3000))
+      }
+      msg += `共用时 ${Math.floor((Date.now() - startTime) / 1000)}s\n`
+      await sendMsgFriend(gameSignUin, msg.trimEnd())
+    }
+    kuroLogger.info(`自动游戏签到: 战双签到完成`)
+    return true
+  }
+}
+
+async function bbsDailyTask() {
+  kuroLogger.info(`自动社区任务开始...`)
+
+  const gameSignUins = fs
+    .readdirSync(dataPath + '/token')
+    .filter((file) => file.endsWith('.json'))
+
+  for (let i in gameSignUins) {
+    let gameSignUin = gameSignUins[i].replace('.json', '')
+    kuroLogger.info(`自动社区任务: 开始为 ${gameSignUin} 执行`)
+    let startTime = Date.now()
+    const tokenData = await getToken(gameSignUin)
+    let msg = '[库洛插件] 自动社区任务\n\n'
+    for (const kuro_uid in tokenData) {
+      if (Object.prototype.hasOwnProperty.call(tokenData, kuro_uid)) {
+        msg += await doBBSDailyTask(gameSignUin, kuro_uid)
+        msg += '\n'
+      } else {
+        msg += `账号 ${kuro_uid}: \ntoken 格式错误\n\n`
+      }
+      await sleepAsync(getRandomInt(1000, 3000))
+    }
+    msg += `共用时 ${Math.floor((Date.now() - startTime) / 1000)}s\n`
+    await sendMsgFriend(gameSignUin, msg.trimEnd())
+  }
+  kuroLogger.info(`自动社区任务: 任务完成`)
+  return true
+}
+
+export async function gameEnergyPushTask(checkTimeInterval = 0) {
+  const taskProcessFile = _DataPath + '/system/taskProcess.json'
+  let taskProcess = ''
+  try {
+    if (!fs.existsSync(taskProcessFile)) {
+      fs.writeFileSync(taskProcessFile, '{}')
+      kuroLogger.debug('创建 taskProcess.json')
+    }
+    taskProcess = fs.readFileSync(taskProcessFile, 'utf8')
+    kuroLogger.debug('读取 taskProcess:', taskProcess.trim())
+  } catch (err) {
+    kuroLogger.error('读取 taskProcess.json 时出现错误:', err.message)
+    taskProcess = '{}'
+  }
+  taskProcess = JSON.parse(taskProcess)
+  taskProcess.gameEnergy = taskProcess.gameEnergy || {}
+  taskProcess.gameEnergy.waitingPushList =
+    taskProcess.gameEnergy.waitingPushList || []
+
+  if (checkTimeInterval) {
+    const now = new Date().getTime() / 1000
+    let lastGameEnergyPushTime = taskProcess?.gameEnergy?.lastPushTime || 0
+    if (now - lastGameEnergyPushTime < checkTimeInterval) {
+      kuroLogger.info(
+        `游戏体力推送: 上次检查时间 ${new Date(
+          lastGameEnergyPushTime
+        )}, 距离上次将查体力不足 ${checkTimeInterval}s, 跳过本次检查`
+      )
+      // 取出 taskProcess.gameEnergy.waitingPushList , 用这些账号调 doMcEnergy 和 doPnsEnergy
+      let waitingPushList = taskProcess.gameEnergy.waitingPushList || []
+      if (waitingPushList.length) {
+        kuroLogger.info(
+          `游戏体力推送: 上次检查时间 ${new Date(
+            lastGameEnergyPushTime
+          )}, 距离上次将查体力不足 ${checkTimeInterval}s, 但有 ${
+            waitingPushList.length
+          } 个账号需要推送体力, 开始推送体力`
+        )
+        for (let i in waitingPushList) {
+          let { gameSignUin, kuro_uid } = waitingPushList[i]
+          kuroLogger.info(
+            `游戏体力推送: 开始为 ${gameSignUin} 的库洛账号 ${kuro_uid} 推送体力`
+          )
+          let mcRet = await doMcEnergy(gameSignUin, kuro_uid, true)
+          let pnsRet = await doPnsEnergy(gameSignUin, kuro_uid, true)
+          kuroLogger.info(
+            `游戏体力推送 ${gameSignUin} : 推送检查完成, 鸣潮: ${mcRet.trim()}, 战双: ${pnsRet.trim()}`
+          )
+        }
+        kuroLogger.info(`游戏体力推送: 推送检查完成`)
+        taskProcess.gameEnergy.waitingPushList = []
+        // 更新任务进度文件
+        taskProcess.gameEnergy.lastPushTime = new Date().getTime() / 1000
+        try {
+          fs.writeFileSync(taskProcessFile, JSON.stringify(taskProcess))
+          kuroLogger.debug('写入 taskProcess:', JSON.stringify(taskProcess))
+        } catch (err) {
+          kuroLogger.error('写入 taskProcess.json 时出现错误:', err.message)
+        }
+      } else {
+        kuroLogger.info(
+          `游戏体力推送: 上次检查时间 ${new Date(
+            lastGameEnergyPushTime
+          )}, 距离上次将查体力不足 ${checkTimeInterval}s, 且没有账号需要推送体力, 跳过本次检查`
+        )
+      }
+      return false
+    } else {
+      kuroLogger.info(
+        `游戏体力推送: 上次检查时间 ${new Date(
+          lastGameEnergyPushTime
+        )}, 距离上次将查体力超过 ${checkTimeInterval}s, 开始本次检查`
+      )
+    }
+  }
+  kuroLogger.info(`游戏体力推送: 开始刷新数据...`)
+  // 先强制清空 taskProcess.gameEnergy.waitingPushList
+  taskProcess.gameEnergy.waitingPushList = []
+
+  const gameSignUins = fs
+    .readdirSync(dataPath + '/token')
+    .filter((file) => file.endsWith('.json'))
+
+  for (let i in gameSignUins) {
+    let gameSignUin = gameSignUins[i].replace('.json', '')
+    kuroLogger.info(`游戏体力推送: 开始为 ${gameSignUin} 刷新数据`)
+    const tokenData = await getToken(gameSignUin)
+    for (const kuro_uid in tokenData) {
+      if (Object.prototype.hasOwnProperty.call(tokenData, kuro_uid)) {
+        let mcNeedPush = false
+        let pnsNeedPush = false
+        await doMcEnergy(gameSignUin, kuro_uid, true, mcNeedPush)
+        await doPnsEnergy(gameSignUin, kuro_uid, true, pnsNeedPush)
+        // 如果有任何一个是需要推送的, 则把 {gameSignUin, kuro_uid} 存入 taskProcess.gameEnergy.waitingPushList
+        if (mcNeedPush || pnsNeedPush) {
+          taskProcess.gameEnergy.waitingPushList.push({ gameSignUin, kuro_uid })
+        }
+      } else {
+        kuroLogger.error(`游戏体力推送: 账号 ${kuro_uid} token 格式错误`)
+      }
+    }
+  }
+  kuroLogger.info(`游戏体力推送: 数据刷新完成`)
+  // 更新任务进度文件
+  taskProcess.gameEnergy.lastPushTime = new Date().getTime() / 1000
+  try {
+    fs.writeFileSync(taskProcessFile, JSON.stringify(taskProcess))
+    kuroLogger.debug('写入 taskProcess:', JSON.stringify(taskProcess))
+  } catch (err) {
+    kuroLogger.error('写入 taskProcess.json 时出现错误:', err.message)
+  }
+  return true
+}
+
+async function bbsActivityTask() {
+  kuroLogger.info(`自动活动任务开始...`)
+
+  const gameSignUins = fs
+    .readdirSync(dataPath + '/token')
+    .filter((file) => file.endsWith('.json'))
+
+  for (let i in gameSignUins) {
+    let gameSignUin = gameSignUins[i].replace('.json', '')
+    kuroLogger.info(`自动活动任务: 开始为 ${gameSignUin} 执行`)
+    let startTime = Date.now()
+    const tokenData = await getToken(gameSignUin)
+    let msg = '[库洛插件] 自动活动任务\n\n'
+    for (const kuro_uid in tokenData) {
+      if (Object.prototype.hasOwnProperty.call(tokenData, kuro_uid)) {
+        msg += await doBbsActivityTask(gameSignUin, kuro_uid)
+        if (/活动已结束/.test(msg)) return false
+        msg += '\n'
+      } else {
+        msg += `账号 ${kuro_uid}: \ntoken 格式错误\n\n`
+      }
+      await sleepAsync(getRandomInt(1000, 3000))
+    }
+    msg += `共用时 ${Math.floor((Date.now() - startTime) / 1000)}s\n`
+    await sendMsgFriend(gameSignUin, msg.trimEnd())
+  }
+  kuroLogger.info(`自动活动任务: 任务完成`)
+  return true
+}
+
+export async function checkUpdateTask() {
+  kuroLogger.info(`检查更新任务开始...`)
+  let remoteVersion = await getRemoteVersion()
+
+  if (!remoteVersion) {
+    kuroLogger.warn(`检查更新任务失败`)
+    await sendMsgFriend(
+      cfg.masterQQ[0],
+      `[库洛插件] 自动检查更新失败\n请检查网络或前往项目地址检查版本信息\nhttps://github.com/TomyJan/Yunzai-Kuro-Plugin`
+    )
+    return false
+  }
+
+  const versionMatch = remoteVersion.match(/\[(.*?)\]\(.*?\)/)
+  remoteVersion = versionMatch?.[1] || false
+
+  if (!remoteVersion) {
+    kuroLogger.info(`检查更新任务: 解析版本信息失败`)
+    await sendMsgFriend(
+      cfg.masterQQ[0],
+      `[库洛插件] 自动检查更新\n解析版本信息失败\n请检查网络或前往项目地址检查版本信息\nhttps://github.com/TomyJan/Yunzai-Kuro-Plugin`
+    )
+    return false
+  }
+
+  kuroLogger.info(
+    `检查更新任务: 获取到最新版本 ${remoteVersion}, 本地版本 ${pluginVer}`
+  )
+  if (remoteVersion != pluginVer) {
+    // 推送并缓存
+    const cacheFilePath = _DataPath + '/system/versionCache.json'
+    let versionCache = {}
+
+    try {
+      versionCache = fs.readFileSync(cacheFilePath, 'utf8')
+      try {
+        versionCache = JSON.parse(versionCache)
+      } catch (err) {
+        kuroLogger.error('解析 versionCache.json 失败:', err.message)
+      }
+      kuroLogger.debug(
+        '读取 versionCache:',
+        versionCache,
+        ', 解析到缓存的版本:',
+        versionCache?.remoteVersion
+      )
+    } catch (err) {
+      kuroLogger.error('读取 versionCache.json 时出现错误:', err.message)
+    }
+
+    if (versionCache?.remoteVersion == remoteVersion) {
+      kuroLogger.warn('该新版本已经推送过, 不再重复推送, 请及时更新!')
+      return false
+    }
+    versionCache = JSON.stringify({ remoteVersion: remoteVersion })
+    let isCacheSucceed = false
+
+    try {
+      fs.writeFileSync(cacheFilePath, versionCache)
+      kuroLogger.debug('缓存远程版本成功!')
+      isCacheSucceed = true
+    } catch (err) {
+      kuroLogger.error('写入versionCache.json 时出现错误:', err.message)
+    }
+
+    await sendMsgFriend(
+      cfg.masterQQ[0],
+      `[库洛插件] 自动检查更新\n发现新版: ${remoteVersion}\n本地版本: ${pluginVer}\n更新日志: https://kuro.amoe.cc/repo/raw/TomyJan/Yunzai-Kuro-Plugin/master/CHANGELOG.md?type=preview\n建议尽快更新~` +
+        (isCacheSucceed ? '' : '\n缓存新版本信息失败, 该信息可能会重复推送')
+    )
+  }
+
+  async function getRemoteVersion() {
+    const updateSources = [
+      {
+        name: 'KuroPluginServer',
+        url: 'https://kuro.amoe.cc/repo/raw/TomyJan/Yunzai-Kuro-Plugin/master/CHANGELOG.md',
+      },
+      {
+        name: 'GitHub',
+        url: 'https://raw.githubusercontent.com/TomyJan/Yunzai-Kuro-Plugin/master/CHANGELOG.md',
+      },
+      {
+        name: 'VovProxy',
+        url: 'https://proxy.vov.moe/https/raw.githubusercontent.com/TomyJan/Yunzai-Kuro-Plugin/master/CHANGELOG.md',
+      },
+      {
+        name: 'GHProxy',
+        url: 'https://ghfast.top/https://raw.githubusercontent.com/TomyJan/Yunzai-Kuro-Plugin/master/CHANGELOG.md',
+      },
+    ]
+
+    for (const source of updateSources) {
+      kuroLogger.debug(`尝试从 ${source.name} 检查更新...`)
+      try {
+        let rsp = await fetch(source.url)
+        if (!rsp.ok) {
+          kuroLogger.warn(
+            `从 ${source.name} 获取更新信息失败: ${rsp.status} ${rsp.statusText}`
+          )
+          continue
+        }
+        kuroLogger.info(`从 ${source.name} 获取更新信息成功, 尝试解析信息...`)
+        return await rsp.text()
+      } catch (error) {
+        kuroLogger.warn(`从 ${source.name} 获取更新信息失败: ${error.message}`)
+        continue
+      }
+    }
+    return null
+  }
+}
